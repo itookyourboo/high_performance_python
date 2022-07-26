@@ -244,3 +244,96 @@ julia1_nopil.py:9(calculate_z_serial_purepython)  -> 34219980    2.651    2.651 
 ```
 
 Не самый информативный инструмент, но позволяет быстро найти узкие места.
+
+### line_profiler
+
+`line_profiler` - модуль для построчного профилирования функций. `kernprof` - скрипт для запуска `line_profiler` или встроенных профилировщиков.
+
+```shell
+$ kernprof -l -v julia1_lineprofiler.py
+```
+
+Флаг `-l` указывает на построчное профилирование, `-v` выведет результаты в консоль, а не только в lprof-файл.
+
+```
+...
+Wrote profile results to julia1_lineprofiler.py.lprof
+Timer unit: 1e-06 s
+
+Total time: 40.3695 s
+File: julia1_lineprofiler.py
+Function: calculate_z_serial_purepython at line 10
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+    10                                           def calculate_z_serial_purepython(maxiter, zs, cs):
+    11                                               """Calculate output list using Julia update rule"""
+    12                                               output = [0] * len(zs)
+    13         1       2625.0   2625.0      0.0      for i in range(len(zs)):
+    14   1000001     306656.0      0.3      0.8          n = 0
+    15   1000000     287664.0      0.3      0.7          z = zs[i]
+    16   1000000     349531.0      0.3      0.9          c = cs[i]
+    17   1000000     328638.0      0.3      0.8          while abs(z) < 2 and n < maxiter:
+    18  34219980   15451978.0      0.5     38.3              z = z * z + c
+    19  33219980   12204232.0      0.4     30.2              n += 1
+    20  33219980   11086011.0      0.3     27.5          output[i] = n
+    21   1000000     352194.0      0.4      0.9      return output
+...
+    59         1  113017245.0 113017245.0     98.4      output = calculate_z_serial_purepython(max_iterations, zs, cs)
+
+```
+
+Код исполняется еще дольше из-за построчных точек останова.
+
+Самая полезная колонка - `% Time`. На 17 строчке непонятно, что обходится дороже - `abs(z) < 2` или `n < maxiter`. Да и обновление значения `z` тоже недешево обходится. Даже инкрементирование `n` - дорогая операция.
+
+Это затратно по причине динамической типизации. Что происходит, когда мы пишем `n += 1`:
+
+1. Имеет ли объект `n` метод `__add__`? Если нет, то смотрим, имеют ли данный метод предки.
+2. Если имеет, то передаем в этот метод объект (в данном случае 1) в метод `__add__`.
+3. Метод `__add__` вершит судьбу сложения. Второй операнд, кстати, может быть несовместимым.
+
+Все это происходит динамически.
+
+Логично предположить, что `abs(z) < 2` выполняется медленнее, чем `n < maxiter`. Проверим:
+
+```ipython
+In [1]: z = 2 + 7j
+In [2]: %timeit abs(z) < 2
+76.8 ns ± 0.928 ns per loop (mean ± std. dev. of 7 runs, 10000000 loops each)
+In [3]: n = 1
+In [4]: maxiter = 300
+In [5]: %timeit n < maxiter
+37.2 ns ± 0.233 ns per loop (mean ± std. dev. of 7 runs, 10000000 loops each)
+```
+
+Поменяем порядок условия цикла `while`:
+
+```
+Wrote profile results to julia1_lineprofiler3.py.lprof
+Timer unit: 1e-06 s
+
+Total time: 43.0923 s
+File: julia1_lineprofiler3.py
+Function: calculate_z_serial_purepython at line 9
+
+Line #      Hits         Time  Per Hit   % Time  Line Contents
+==============================================================
+     9                                           @profile
+    10                                           def calculate_z_serial_purepython(maxiter, zs, cs):
+    11                                               """Calculate output list using Julia update rule"""
+    12         1       2613.0   2613.0      0.0      output = [0] * len(zs)
+    13   1000001     333893.0      0.3      0.8      for i in range(len(zs)):
+    14   1000000     323235.0      0.3      0.8          n = 0
+    15   1000000     365802.0      0.4      0.8          z = zs[i]
+    16   1000000     351260.0      0.4      0.8          c = cs[i]
+    17  34219980   16033037.0      0.5     37.2          while n < maxiter and abs(z) < 2:
+    18  33219980   13280541.0      0.4     30.8              z = z * z + c
+    19  33219980   12041682.0      0.4     27.9              n += 1
+    20   1000000     360243.0      0.4      0.8          output[i] = n
+    21         1          0.0      0.0      0.0      return output
+...
+    54         1   71638537.0 71638537.0     97.4      output = calculate_z_serial_purepython(max_iterations, zs, cs)
+```
+
+Обычная перестановка в условии сделала функцию немного быстрее. Было 98.4%, стало 97.4%.
