@@ -245,6 +245,16 @@ julia1_nopil.py:9(calculate_z_serial_purepython)  -> 34219980    2.651    2.651 
 
 Не самый информативный инструмент, но позволяет быстро найти узкие места.
 
+#### snakeviz
+
+Файл profile.stats, полученный в результате запуска `cProfile`, можно визуализировать с помощью утилиты `snakeviz`:
+
+```shell
+$ snakeviz profile.stats
+```
+
+![snakeviz.png](img/snakeviz.png)
+
 ### line_profiler
 
 `line_profiler` - модуль для построчного профилирования функций. `kernprof` - скрипт для запуска `line_profiler` или встроенных профилировщиков.
@@ -347,4 +357,244 @@ Line #      Hits         Time  Per Hit   % Time  Line Contents
 - Можно ли использовать меньше оперативной памяти для повышения эффективности функции?
 - Можно ли использовать больше оперативной памяти и сохранить циклы процессора с помощью кэширования?
 
-Утилита работает аналогично `line_profiler`, но в разы медленнее.
+```shell
+$ python -m memory_profiler julia1_memoryprofiler.py
+```
+
+Утилита работает аналогично `line_profiler`, но в разы медленнее. Честно говоря, у меня он так и не выдал результат за 30 минут...
+
+### memit, IPython
+
+IPython имеет magic-функцию %memit, которая позволяет измерять затраченную на выражение память.
+
+```ipython
+In [2]: %load_ext memory_profiler
+In [3]: %memit [0] * int(1e7)
+peak memory: 158.58 MiB, increment: 76.16 MiB
+```
+
+### PySpy
+
+В отличие от предыдущих профилировщиков, `py-spy` может исследовать уже запущенный скрипт. Давайте посмотрим, что там профилировщик памяти делает...
+
+```shell
+$ pip install py-spy
+
+$ ps -A -o pid,rss,cmd | grep python
+3926 129848 python -m memory_profiler julia1_memoryprofiler.py
+
+$ sudo env "PATH=$PATH" py-spy top --pid 3926
+Collecting samples from 'python -m memory_profiler julia1_memoryprofiler.py' (python v3.10.5)
+Total Samples 6100
+GIL: 66.00%, Active: 100.00%, Threads: 1
+
+  %Own   %Total  OwnTime  TotalTime  Function (filename)                                                       
+ 23.00%  23.00%   13.73s    13.73s   open_binary (psutil/_common.py)
+ 14.00%  25.00%   10.45s    17.15s   cat (psutil/_common.py)
+ 12.00%  28.00%    7.70s    16.90s   memory_info (psutil/_pslinux.py)
+  9.00%  34.00%    4.87s    22.59s   _parse_stat_file (psutil/_pslinux.py)
+  8.00%  94.00%    3.46s    57.46s   trace (memory_profiler.py)
+  3.00%  68.00%    3.36s    43.92s   wrapper (psutil/_common.py)
+```
+
+С помощью команды `record` можно построить flame graph.
+
+```shell
+$ py-spy record -o img/profile.svg -- python julia1_nopil.py
+```
+
+![profile.svg](img/profile.svg)
+
+### Байт-код
+
+Модуль `dis` позволяет посмотреть байт-код функции или скомпилированного с помощью `compile` кода. Это помогает понять, почему один код работает быстрее другого.
+
+```ipython
+In [1]: import dis
+In [2]: import julia1_nopil
+In [3]: dis.dis(julia1_nopil.calculate_z_serial_purepython)
+ 11           0 LOAD_CONST               1 (0)
+              2 BUILD_LIST               1
+              4 LOAD_GLOBAL              0 (len)
+              6 LOAD_FAST                1 (zs)
+              8 CALL_FUNCTION            1
+             10 BINARY_MULTIPLY
+             12 STORE_FAST               3 (output)
+
+ 12          14 LOAD_GLOBAL              1 (range)
+             16 LOAD_GLOBAL              0 (len)
+             18 LOAD_FAST                1 (zs)
+             20 CALL_FUNCTION            1
+             22 CALL_FUNCTION            1
+             24 GET_ITER
+        >>   26 FOR_ITER                46 (to 120)
+             28 STORE_FAST               4 (i)
+
+ 13          30 LOAD_CONST               1 (0)
+             32 STORE_FAST               5 (n)
+
+ 14          34 LOAD_FAST                1 (zs)
+             36 LOAD_FAST                4 (i)
+             38 BINARY_SUBSCR
+             40 STORE_FAST               6 (z)
+
+ 15          42 LOAD_FAST                2 (cs)
+             44 LOAD_FAST                4 (i)
+             46 BINARY_SUBSCR
+             48 STORE_FAST               7 (c)
+
+ 16          50 LOAD_GLOBAL              2 (abs)
+             52 LOAD_FAST                6 (z)
+             54 CALL_FUNCTION            1
+             56 LOAD_CONST               2 (2)
+             58 COMPARE_OP               0 (<)
+             60 POP_JUMP_IF_FALSE       55 (to 110)
+             62 LOAD_FAST                5 (n)
+             64 LOAD_FAST                0 (maxiter)
+             66 COMPARE_OP               0 (<)
+             68 POP_JUMP_IF_FALSE       55 (to 110)
+
+ 17     >>   70 LOAD_FAST                6 (z)
+             72 LOAD_FAST                6 (z)
+             74 BINARY_MULTIPLY
+             76 LOAD_FAST                7 (c)
+             78 BINARY_ADD
+             80 STORE_FAST               6 (z)
+
+ 18          82 LOAD_FAST                5 (n)
+             84 LOAD_CONST               3 (1)
+             86 INPLACE_ADD
+             88 STORE_FAST               5 (n)
+
+ 16          90 LOAD_GLOBAL              2 (abs)
+             92 LOAD_FAST                6 (z)
+             94 CALL_FUNCTION            1
+             96 LOAD_CONST               2 (2)
+             98 COMPARE_OP               0 (<)
+            100 POP_JUMP_IF_FALSE       55 (to 110)
+            102 LOAD_FAST                5 (n)
+            104 LOAD_FAST                0 (maxiter)
+            106 COMPARE_OP               0 (<)
+            108 POP_JUMP_IF_TRUE        35 (to 70)
+
+ 19     >>  110 LOAD_FAST                5 (n)
+            112 LOAD_FAST                3 (output)
+            114 LOAD_FAST                4 (i)
+            116 STORE_SUBSCR
+            118 JUMP_ABSOLUTE           13 (to 26)
+
+ 20     >>  120 LOAD_FAST                3 (output)
+            122 RETURN_VALUE
+```
+
+По столбцам:
+
+1. Строчка, соответствующую скрипту
+2. Содержит символы `>>`. Это пункты назначения `jump`-инструкций (`JUMP_ABSOLUTE`, `POP_JUMP_IF_FALSE` и т.п.)
+3. Адрес инструкции
+4. Имя инструкции
+5. Параметры инструкции
+6. Аннотация для соотнесения параметров с изначальным кодом
+
+```
+ 11           0 LOAD_CONST               1 (0)
+              2 BUILD_LIST               1
+              4 LOAD_GLOBAL              0 (len)
+              6 LOAD_FAST                1 (zs)
+              8 CALL_FUNCTION            1
+             10 BINARY_MULTIPLY
+             12 STORE_FAST               3 (output)
+```
+
+```python
+output = [0] * len(zs)
+```
+
+Байт-код начинается на 11 строчке Python, кладя значение 0 на стек, затем создается одноэлементный список. Затем в пространстве имен он находит функцию `len`, кладет ее на стек, ищет переменную `zs` и также кладет на стек. Затем вызывается `len` функция из стека, принимающая аргумент `zs`, результат кладется на стек. Применяется операция умножения к одноэлементному списку и `len(zs)`.
+
+Имеем две функции:
+
+```python
+def fn_expressive(upper=1_000_000):
+    total = 0
+    for n in range(upper):
+        total += n
+    return total
+
+def fn_terse(upper=1_000_000):
+    return sum(range(upper))
+```
+
+Замерим время выполнения:
+
+```ipython
+In [3]: %timeit fn_expressive()
+40.6 ms ± 125 µs per loop (mean ± std. dev. of 7 runs, 10 loops each)
+
+In [4]: %timeit fn_terse()
+15.2 ms ± 463 µs per loop (mean ± std. dev. of 7 runs, 100 loops each)
+```
+
+Посмотрим байт-код:
+
+```
+In [5]: dis.dis(fn_expressive)
+  2           0 LOAD_CONST               1 (0)
+              2 STORE_FAST               1 (total)
+
+  3           4 LOAD_GLOBAL              0 (range)
+              6 LOAD_FAST                0 (upper)
+              8 CALL_FUNCTION            1
+             10 GET_ITER
+        >>   12 FOR_ITER                 6 (to 26)
+             14 STORE_FAST               2 (n)
+
+  4          16 LOAD_FAST                1 (total)
+             18 LOAD_FAST                2 (n)
+             20 INPLACE_ADD
+             22 STORE_FAST               1 (total)
+             24 JUMP_ABSOLUTE            6 (to 12)
+
+  5     >>   26 LOAD_FAST                1 (total)
+             28 RETURN_VALUE
+```
+
+```
+In [6]: dis.dis(fn_terse)
+  2           0 LOAD_GLOBAL              0 (sum)
+              2 LOAD_GLOBAL              1 (range)
+              4 LOAD_FAST                0 (upper)
+              6 CALL_FUNCTION            1
+              8 CALL_FUNCTION            1
+             10 RETURN_VALUE
+
+```
+
+Разница в количестве инструкций колоссальна.
+
+В первом случае мы поддерживаем две переменные для итерации по списку с помощью цикла `for`. В нем вызывает `total.__add__`, которая будет проверять тип второй переменной на каждой итерации.
+
+Во втором случае мы вызываем оптимизированные языков C функции.
+
+### Декоратор @profile и NameError
+
+Декоратор, используемый в `line_profiler` и `memory_profiler`, вызывает исключение `NameError` при запуске скрипта, поэтому это может многое поломать в проекте.
+
+Чтобы это исправить, нужно внести изменение в запускаемый скрипт:
+
+```python
+if 'line_profiler' not in dir() and 'profile' not in dir():
+    def profile(func):
+        return func
+```
+
+### Стратегии профилирования
+
+На результаты профилирования может повлиять множество факторов. Начиная от порядка запуска функций, заканчивая температурой аккумулятора. Чтобы создать более стабильный тест производительности, автор советует сделать следующее:
+
+- Отключить Turbo Boost в BIOS
+- Отключить опцию SpeedStep в BIOS
+- Использовать питание от 
+- Отключить фоновые процессы во время эксперимента
+- Использовать первый уровень выполнения в Unix (runlevel 1)
+- Перезагрузить ОС и перезапустить эксперимент
