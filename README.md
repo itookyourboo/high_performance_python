@@ -1,5 +1,11 @@
-High Performance Python 2e: The Code
+Конспект книги High Performance Python на русском
 =================================
+
+1. [Введение](https://github.com/itookyourboo/high_performance_python/tree/master/01_understanding) _(в работе)_
+2. [Профилирование](https://github.com/itookyourboo/high_performance_python/tree/master/02_profiling)
+3. [Списки и кортежи](https://github.com/itookyourboo/high_performance_python/tree/master/03_lists_tuples)
+
+---
 
 This repository contains the code from ["High Performance
 Python 2e"](http://shop.oreilly.com/product/0636920268505.do) by Micha Gorelick
