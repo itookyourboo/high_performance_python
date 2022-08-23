@@ -4,6 +4,7 @@
 1. [Введение](https://github.com/itookyourboo/high_performance_python/tree/master/01_understanding)
 2. [Профилирование](https://github.com/itookyourboo/high_performance_python/tree/master/02_profiling)
 3. [Списки и кортежи](https://github.com/itookyourboo/high_performance_python/tree/master/03_lists_tuples)
+4. [Словари и множества](https://github.com/itookyourboo/high_performance_python/tree/master/04_dict_set)
 
 ---
 
